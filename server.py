@@ -1,56 +1,67 @@
-import sys,os
-from socket import *
-from Queue import Queue
-from threading import Thread
-from commands import Commands
+import os
+import socket
+import threadpool
+import servermanager
 
+pool=threadpool.ThreadPool(1000)
 
+port_number=8080
 
-threads=[]
+address=socket.gethostbyname(socket.gethostname())
+
+manager=servermanager.ServerManager("root")
+
 activE=True
-threadLimit=100
-numb_of_threads=0
 
-
-hostname=sys.argv[1]
-port_number=int(sys.argv[2])
-sock=socket(AF_INET,SOCK_STREAM)
-sock.setsockopt(SOL_SOCKET,SO_REUSEADDR,1)
-sock.bind((hostname,port_number))
-sock.listen(10)
-
-def messages(connect):
+def run_server():
+	sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+	server_address=('0.0.0.0',port_number)
+	sock.bind(server_address)
+	sock.listen(1)
+	
 	while activE:
+		connect,user_address=sock.accept()
+		pool.add_task(
+			messages,
+			connect,
+			user_address
+		)
+
+#Add in locking and caching
+def messages(connect,user_address):
+	try:
+		user_id=manager.add_user(connect)
 		msg=connect.recv(2048)
-		if msg[:2] == "cd":
-		
+		data_in_msg=msg.split("////")
+		if data_in_msg[0] == "cd":
+			manager.change(data_in_msg[1],user_id)
+		elif data_in_msg[0] == "cd ..":
+			manager.changeup(user_id)
 		elif msg=="ls":
-			
-		elif msg[:4] =="read":
-				
-		elif msg[:5] =="write":
-			
-		elif msg[:4]=="HELO":
-				print "HELO Received: "+msg
-				msg="%sIP:%s\nPort:%s\nStudentID:13319829\n"%(msg,str(gethostbyname(gethostname())),int(sys.argv[2]))
-				connect.sendall(msg)
-				print "HELO Sent"
-		elif msg[:12]=="KILL_SERVICE":				
-				os._exit(1)
-				activE=False
+			manager.list_all(user_id)
+		elif data_in_msg[0] =="mkdir":
+			manager.make(data_in_msg[1],user_id)
+		elif data_in_msg[0] =="rmdir":
+			manager.remove(data_in_msg[1],user_id)
+		elif data_in_msg[0] =="read":
+			manager.read_file(data_in_msg[1],user_id)
+		elif data_in_msg[0] =="write":
+			manager.write_to_file(data_in_msg[1],data_in_msg[2],user_id)
+		elif data_in_msg[0] =="delete":
+			manager.delete_file(data_in_msg[1],user_id)
+		elif data_in_msg[0] =="exit":
+			manager.disconnect_user(connect,user_id)
+		elif msg=="KILL_SERVICE":				
+			connection.close()
+			os._exit(0)
 		else:
-			errmsg="ERROR_CODE:1\nERROR_DESCRIPTION: Parse error\n"
+			errmsg="ERROR\n"
 			connect.sendall(errmsg)
+	except:	
+		errmsg="ERROR\n"
+		connect.sendall(errmsg)
+		connect.close()
 		
-
-
-while activE:
-	if numb_of_threads<threadLimit:
-		connect,address=sock.accept()
-		threads.append(Thread(target=messages,args=(connect,)))		
-		threads[numb_of_threads].start()
-		global numb_of_threads
-		numb_of_threads=numb_of_threads+1
-	else:
-		print("max threads reached")
-
+if __name__ == '__main__':
+    run_server()
+    pool.wait_completion()
